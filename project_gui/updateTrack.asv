@@ -1,0 +1,85 @@
+function [newTrack] = updateTrack(tracks,centerLocation)
+nTracks = length(tracks);
+predictions=zeros(nTracks,2);
+for i = 1:nTracks
+    lastState=[tracks(i).x;
+    tracks(i).y;
+    tracks(i).vx;
+    tracks(i).vy;
+    tracks(i).ax;
+    tracks(i).ay;];
+    [~,positionPred,~]=stateEstimate(lastState,tracks(i).P);
+    predictions(i,1)=positionPred(1,1);
+    predictions(i,2)=positionPred(2,1);
+end
+detections=centerLocation;
+% 创建损失函数矩阵，行代表轨迹，列代表新检测目标
+cost = zeros(size(predictions,1),size(detections,1));
+% 对每个轨迹来说，使用他们的卡尔曼滤波器预测的结果，与每个新检测目标的中心计算欧氏距离，
+% 存入损失函数矩阵中
+for i = 1:size(predictions, 1)
+    cost(i, :) = distance(tracks(i)., centroids);%损失矩阵计算
+end
+threshold=5;
+% 匈牙利匹配算法根据损失函数和阈值分配好轨迹和检测目标
+[assignment,unassignedTracks,unassignedDetections] = ...
+            assignDetectionsToTracks(cost,threshold);
+
+
+  for i = 1:size(assignment,1)
+    trackNo=assignment(i,1);
+    lastState=[tracks(trackNo).x;
+    tracks(trackNo).y;
+    tracks(trackNo).vx;
+    tracks(trackNo).vy;
+    tracks(trackNo).ax;
+    tracks(trackNo).ay;];
+    positionMeasured=[detections(assignment(i, 2),1);detections(assignment(i,2),2)];
+    [predP,predState]=kalFilter(lastState,tracks(trackNo).P,positionMeasured);
+    tracks(trackNo).x=predState(1,1);
+    tracks(trackNo).y=predState(2,1);
+    tracks(trackNo).vx=predState(3,1);
+    tracks(trackNo).vy=predState(4,1);
+    tracks(trackNo).ax=predState(5,1);
+    tracks(trackNo).ay=predState(6,1);
+    tracks(trackNo).death=0;
+    tracks(trackNo).P=predP;
+  end
+  countTracks = length(tracks);
+
+  for i = 1:length(unassignedDetections)
+      Q=[1,0,0,0,0,0;...
+    0,1,0,0,0,0;...
+    0,0,1,0,0,0;...
+    0,0,0,1,0,0;...
+    0,0,0,0,1,0;...
+    0,0,0,0,0,1;];
+    trackNo=countTracks+i;
+    tracks(trackNo).id=countTracks+i;
+    tracks(trackNo).x=detections(unassignedDetections(i),1);
+    tracks(trackNo).y=detections(unassignedDetections(i),2);
+    tracks(trackNo).vx=0;
+    tracks(trackNo).vy=0;
+    tracks(trackNo).ax=0;
+    tracks(trackNo).ay=0;
+    tracks(trackNo).death=0;
+    tracks(trackNo).P=Q;
+  end
+
+  deleteCount=[];
+  for i = 1:length(unassignedTracks)
+    trackNo=unassignedTracks(i);
+    deathCount=tracks(trackNo).death+1;
+    if(deathCount>=3)
+        deleteCount=[deleteCount,trackNo];
+    else
+        tracks(trackNo).death=deathCount;
+    end
+  end
+  tracks(deleteCount)=[];
+
+
+newTrack=tracks;
+
+end
+
